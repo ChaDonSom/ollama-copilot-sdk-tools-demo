@@ -127,7 +127,7 @@ try {
   console.error("To pull the model, run:");
   console.error(`  ollama pull ${model}\n`);
   console.error("To verify Ollama is running, try:");
-  // Remove /v1 path from baseUrl for Ollama API endpoint
+  // Set pathname to Ollama API endpoint
   const ollamaApiUrl = new URL(baseUrl);
   ollamaApiUrl.pathname = '/api/tags';
   console.error(`  curl ${ollamaApiUrl.toString()}\n`);

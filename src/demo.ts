@@ -1,11 +1,22 @@
 import { CopilotClient, defineTool } from "@github/copilot-sdk";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { config } from "dotenv";
+
+// Load environment variables from .env file if it exists
+config();
 
 const repoRoot = process.cwd();
 const baseUrl = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434/v1";
 const model = process.env.OLLAMA_MODEL ?? "qwen2.5:7b-instruct";
 const streaming = process.env.DEMO_STREAMING === "1";
+
+// Log configuration for debugging
+console.error("=== Ollama Configuration ===");
+console.error(`Model: ${model}`);
+console.error(`Base URL: ${baseUrl}`);
+console.error(`Streaming: ${streaming}`);
+console.error("===========================\n");
 
 const toolCounts: Record<string, number> = Object.create(null);
 const noteToolCall = (name: string, payload: unknown) => {
@@ -96,15 +107,35 @@ const client = new CopilotClient({
   useLoggedInUser: false,
 });
 
-const session = await client.createSession({
-  model,
-  provider: {
-    type: "openai",
-    baseUrl,
-  },
-  tools: [getTime, add, listRepoFiles, readTextFile],
-  streaming,
-});
+let session;
+try {
+  session = await client.createSession({
+    model,
+    provider: {
+      type: "openai",
+      baseUrl,
+    },
+    tools: [getTime, add, listRepoFiles, readTextFile],
+    streaming,
+  });
+} catch (error) {
+  console.error("\n❌ Failed to create session with Ollama.");
+  console.error("\nPossible causes:");
+  console.error("  1. The model name is incorrect or the model hasn't been pulled");
+  console.error("  2. Ollama is not running (run 'ollama serve')");
+  console.error("  3. The base URL is incorrect\n");
+  console.error("To pull the model, run:");
+  console.error(`  ollama pull ${model}\n`);
+  console.error("To verify Ollama is running, try:");
+  // Set pathname to Ollama API endpoint
+  const ollamaApiUrl = new URL(baseUrl);
+  ollamaApiUrl.pathname = '/api/tags';
+  console.error(`  curl ${ollamaApiUrl.toString()}\n`);
+  console.error("Original error:", error);
+  process.exitCode = 1;
+  await client.stop();
+  process.exit(1);
+}
 
 if (streaming) {
   session.on("assistant.message_delta", (event) => {
@@ -113,8 +144,21 @@ if (streaming) {
   session.on("session.idle", () => process.stdout.write("\n"));
 }
 
-const response = await session.sendAndWait({ prompt });
-if (!streaming) console.log(response?.data.content ?? "");
+let response;
+try {
+  response = await session.sendAndWait({ prompt });
+  if (!streaming) console.log(response?.data.content ?? "");
+} catch (error) {
+  console.error("\n❌ Error during session execution.");
+  console.error("This could indicate:");
+  console.error("  1. The model doesn't support tool calls");
+  console.error("  2. Timeout waiting for response");
+  console.error("  3. Model encountered an error during generation\n");
+  console.error("Original error:", error);
+  process.exitCode = 1;
+  await client.stop();
+  process.exit(1);
+}
 
 await client.stop();
 
